@@ -1,8 +1,14 @@
 import json
 import ubinascii
 import time
+import ustruct
 
-from machine import UART, PWM, Pin
+from machine import UART, PWM, Pin, I2C
+
+_I2C_BYPASS_MASK = const(0b00000010)
+_I2C_BYPASS_EN = const(0b00000010)
+_I2C_BYPASS_DIS = const(0b00000000)
+_INT_PIN_CFG = const(0x37)
 
 class system_devices():
     def __init__(self, config="config.json"):
@@ -24,6 +30,39 @@ class system_devices():
             return self.xbee_device()
         if (name =='gps'):
             return self.gps_device()
+        if (name =='mpu'):
+            return self.mpu_device()
+
+
+    def mpu_device(self):
+        i2c_scl = self.cfg('pins_devices')['i2c_scl']
+        i2c_sda = self.cfg('pins_devices')['i2c_sda']
+        self.addr=0x68
+
+        self.mpu = I2C(scl=Pin(i2c_scl), sda=Pin(i2c_sda), freq=100000)
+
+        try:
+            self.mpu.start()
+            self.mpu.writeto(self.addr, bytearray([107, 0]))
+
+            """ Enable I2C bypass """
+            char = self._register_char(_INT_PIN_CFG)
+            char &= ~_I2C_BYPASS_MASK
+            char |= _I2C_BYPASS_EN
+            self._register_char(_INT_PIN_CFG, char)
+            self.mpu_scan = self.mpu.scan()
+
+            print("[device] i2c detect addr: \t\t"+str(self.mpu_scan))
+        except:
+            print("[device] i2c \t\t\t\t[FAILED/TIMEOUT]")
+
+    def _register_char(self, register, value=None, buf=bytearray(1)):
+        if value is None:
+            self.mpu.readfrom_mem_into(self.addr, register, buf)
+            return buf[0]
+
+        ustruct.pack_into("<b", buf, 0, value)
+        return self.mpu.writeto_mem(self.addr, register, buf)
 
     def xbee_device(self):
         xbee_tx = self.cfg('pins_devices')['xbee_uart_tx']
